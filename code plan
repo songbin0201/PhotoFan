@@ -1,1 +1,576 @@
+# 完整前后端 Code Plan：弹幕拍照 AI 助手
 
+---
+
+## 系统架构总览
+
+```
+┌─────────────────────────────────────────┐
+│              iOS App                     │
+│  CameraEngine → SceneAnalyzer           │
+│       ↓ 每2秒采帧 + 传感器数据           │
+│  AgentService ←→ SSE 长连接             │
+│       ↓                                  │
+│  CameraViewModel → DanmakuView          │
+└─────────────────┬───────────────────────┘
+                  │ HTTPS + SSE
+┌─────────────────▼───────────────────────┐
+│              后端服务                    │
+│  API Gateway → Agent Orchestrator       │
+│       ↓                                  │
+│  Vision Analyzer + LLM Planner          │
+│       ↓ SSE 流式推送                    │
+│  Suggestion Stream → Resolve Detector   │
+└─────────────────────────────────────────┘
+```
+
+---
+
+## 一、iOS 端
+
+### 1. 文件结构
+
+```
+DanmakuCamera/
+├── App/
+│   └── DanmakuCameraApp.swift
+├── Camera/
+│   ├── CameraEngine.swift
+│   └── CameraPreviewView.swift
+├── Analysis/
+│   └── SceneAnalyzer.swift
+├── Agent/
+│   ├── AgentService.swift
+│   └── SSEParser.swift
+├── Danmaku/
+│   ├── DanmakuView.swift
+│   └── DanmakuItemView.swift
+├── Models/
+│   ├── SuggestionItem.swift
+│   └── AgentModels.swift
+├── ViewModels/
+│   └── CameraViewModel.swift
+└── Views/
+    └── CameraView.swift
+```
+
+---
+
+### 2. 数据模型 `Models/`
+
+```swift
+// SuggestionItem.swift
+
+enum SuggestionStatus {
+    case pending    // 灰色，问题未解决
+    case achieved   // 绿色，问题已解决
+    case expired    // 飘出屏幕，待移除
+}
+
+struct SuggestionItem: Identifiable {
+    let id: String           // 后端生成，用于 resolve 匹配
+    let type: String         // "composition" / "lighting" / "focus" 等
+    let text: String         // Agent 生成的自然语言建议
+    var status: SuggestionStatus
+    var laneY: CGFloat       // 弹幕轨道纵向位置（随机分配）
+    var startTime: Date
+    var resolvedAt: Date?
+}
+
+// AgentModels.swift
+
+struct AnalyzeRequest: Codable {
+    let sessionId: String
+    let frame: String           // Base64 JPEG
+    let sensorData: SensorData
+    let activeSuggestions: [String]
+}
+
+struct SensorData: Codable {
+    let tiltX: Double
+    let tiltY: Double
+    let brightness: Double
+    let isFocusing: Bool
+}
+
+enum SSEEvent {
+    case suggestion(SuggestionItem)
+    case resolve(id: String)
+    case done
+    case error(String)
+}
+```
+
+---
+
+### 3. 相机模块 `Camera/`
+
+```swift
+// CameraEngine.swift
+
+class CameraEngine: NSObject {
+    private let session = AVCaptureSession()
+    private let videoOutput = AVCaptureVideoDataOutput()
+    private let photoOutput = AVCapturePhotoOutput()
+
+    var onFrameOutput: ((CMSampleBuffer) -> Void)?
+
+    func startSession()       // 配置 + 启动 session
+    func stopSession()
+    func capturePhoto()       // 触发拍照
+    func configureSession()   // 权限申请 + 设备绑定
+}
+
+// CameraPreviewView.swift
+
+struct CameraPreviewView: UIViewRepresentable {
+    let engine: CameraEngine
+    // 挂载 AVCaptureVideoPreviewLayer
+}
+```
+
+---
+
+### 4. 本地传感器采集 `Analysis/`
+
+```swift
+// SceneAnalyzer.swift
+// 职责：仅采集数据，不做判断，判断交给后端 Agent
+
+class SceneAnalyzer {
+    private let motionManager = CMMotionManager()
+
+    func startMotionUpdates()
+    func stopMotionUpdates()
+
+    func collectSensorData() -> SensorData
+    // 返回：倾斜角 / 本地亮度初值 / 对焦状态
+
+    func captureFrame(from buffer: CMSampleBuffer) -> UIImage?
+    // CMSampleBuffer → 压缩至 720p JPEG → 供上传
+}
+```
+
+---
+
+### 5. Agent 通信模块 `Agent/`
+
+```swift
+// SSEParser.swift
+
+class SSEParser {
+    // 将 URLSession data stream 解析为 SSEEvent 序列
+    func parse(line: String) -> SSEEvent?
+    // 处理：event: / data: / id: 字段
+}
+
+// AgentService.swift
+
+class AgentService {
+    private var currentTask: URLSessionDataTask?
+    private let parser = SSEParser()
+    private let baseURL = "https://your-backend.com"
+
+    func analyzeFrame(
+        request: AnalyzeRequest,
+        onEvent: @escaping (SSEEvent) -> Void
+    )
+    // 1. POST /api/analyze（multipart：frame + sensorData）
+    // 2. 建立 SSE 长连接读取响应流
+    // 3. 解析每行 → 回调 onEvent
+
+    func cancelCurrentRequest()
+}
+```
+
+---
+
+### 6. ViewModel `ViewModels/`
+
+```swift
+// CameraViewModel.swift
+
+class CameraViewModel: ObservableObject {
+    @Published var suggestions: [SuggestionItem] = []
+    @Published var connectionState: AgentConnectionState = .idle
+
+    private let engine = CameraEngine()
+    private let analyzer = SceneAnalyzer()
+    private let agentService = AgentService()
+    private var sessionId = UUID().uuidString
+    private var frameTimer: Timer?
+
+    // 启动采帧循环（每 2 秒）
+    func startAnalysisLoop()
+
+    // 核心：采帧 → 上传 → 处理 SSE 事件
+    private func sendFrameToAgent(buffer: CMSampleBuffer)
+
+    // SSE 事件处理
+    private func handleSuggestion(_ item: SuggestionItem)
+    // → 去重检查 → 分配 laneY → 加入 suggestions
+
+    private func handleResolve(id: String)
+    // → 找到对应 item → status = .achieved → 触发变绿动画
+
+    private func cleanupExpiredItems()
+    // → 移除已飘出屏幕的 items
+}
+
+enum AgentConnectionState {
+    case idle
+    case analyzing
+    case streaming
+    case error(String)
+}
+```
+
+---
+
+### 7. 弹幕 UI `Danmaku/`
+
+```swift
+// DanmakuItemView.swift
+
+struct DanmakuItemView: View {
+    let item: SuggestionItem
+    @State private var offsetX: CGFloat = UIScreen.main.bounds.width
+
+    var body: some View {
+        Text(item.text)
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(
+                item.status == .achieved
+                    ? Color.green.opacity(0.85)
+                    : Color.gray.opacity(0.6)
+            )
+            .foregroundColor(.white)
+            .cornerRadius(16)
+            .offset(x: offsetX, y: item.laneY)
+            .animation(.easeInOut(duration: 0.5), value: item.status)
+            .onAppear {
+                withAnimation(.linear(duration: 8.0)) {
+                    offsetX = -UIScreen.main.bounds.width - 200
+                }
+            }
+    }
+}
+
+// DanmakuView.swift
+
+struct DanmakuView: View {
+    @ObservedObject var viewModel: CameraViewModel
+
+    var body: some View {
+        ZStack {
+            ForEach(viewModel.suggestions) { item in
+                DanmakuItemView(item: item)
+            }
+        }
+        .ignoresSafeArea()
+    }
+}
+```
+
+---
+
+### 8. 主视图 `Views/`
+
+```swift
+// CameraView.swift
+
+struct CameraView: View {
+    @StateObject private var viewModel = CameraViewModel()
+
+    var body: some View {
+        ZStack {
+            // 层1：相机预览
+            CameraPreviewView(engine: viewModel.engine)
+                .ignoresSafeArea()
+
+            // 层2：弹幕叠加层
+            DanmakuView(viewModel: viewModel)
+
+            // 层3：状态指示（分析中 / 网络异常）
+            if viewModel.connectionState == .analyzing {
+                ConnectionStateView(state: viewModel.connectionState)
+            }
+
+            // 层4：底部拍照按钮
+            VStack {
+                Spacer()
+                CaptureButton { viewModel.engine.capturePhoto() }
+                    .padding(.bottom, 40)
+            }
+        }
+        .onAppear { viewModel.startAnalysisLoop() }
+        .onDisappear { viewModel.stopAnalysisLoop() }
+    }
+}
+```
+
+---
+
+## 二、后端服务
+
+### 1. 文件结构
+
+```
+backend/
+├── server.py                   # FastAPI 入口
+├── routers/
+│   └── analyze.py              # /api/analyze 路由
+├── agents/
+│   ├── orchestrator.py         # Agent 主调度
+│   ├── vision_analyzer.py      # 视觉分析（调用 Vision LLM）
+│   ├── suggestion_planner.py   # 建议生成 + 优先级排序
+│   └── resolve_detector.py     # 判断哪些建议已解决
+├── models/
+│   ├── request_models.py       # AnalyzeRequest Pydantic 模型
+│   └── suggestion_models.py    # Suggestion / SSEEvent 数据结构
+├── utils/
+│   ├── image_utils.py          # Base64 解码 / 图像预处理
+│   └── sse_utils.py            # SSE 格式化输出工具
+└── config.py                   # 模型 API Key / 参数配置
+```
+
+---
+
+### 2. 数据模型 `models/`
+
+```python
+# request_models.py
+
+class SensorData(BaseModel):
+    tilt_x: float
+    tilt_y: float
+    brightness: float
+    is_focusing: bool
+
+class AnalyzeRequest(BaseModel):
+    session_id: str
+    frame: str                    # Base64 JPEG
+    sensor_data: SensorData
+    active_suggestions: list[str] # 当前屏幕已有弹幕 ID
+
+# suggestion_models.py
+
+class Suggestion(BaseModel):
+    id: str                       # uuid
+    type: str                     # lighting / composition / focus / stability
+    text: str                     # 中文建议文字
+    resolved: bool = False
+    priority: int = 1             # 1-3，控制推送顺序
+
+class SSEMessage(BaseModel):
+    event: str                    # "suggestion" / "resolve" / "done" / "error"
+    data: dict
+```
+
+---
+
+### 3. API 入口 `routers/analyze.py`
+
+```python
+@router.post("/api/analyze")
+async def analyze(request: AnalyzeRequest):
+    return StreamingResponse(
+        orchestrator.run(request),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no"   # 禁止 Nginx 缓冲，保证实时推送
+        }
+    )
+```
+
+---
+
+### 4. Agent 调度核心 `agents/orchestrator.py`
+
+```python
+# orchestrator.py
+
+async def run(request: AnalyzeRequest) -> AsyncGenerator[str, None]:
+
+    # Step 1: 图像预处理
+    image = decode_and_preprocess(request.frame)
+
+    # Step 2: 并行执行视觉分析 + 传感器判断
+    vision_result, sensor_result = await asyncio.gather(
+        vision_analyzer.analyze(image),
+        resolve_detector.check_sensors(request.sensor_data)
+    )
+
+    # Step 3: 判断哪些已有建议可以标记为 resolved
+    for suggestion_id in request.active_suggestions:
+        if resolve_detector.is_resolved(suggestion_id, vision_result, sensor_result):
+            yield format_sse("resolve", {"id": suggestion_id})
+
+    # Step 4: 生成新建议（排除已有的，避免重复）
+    new_suggestions = suggestion_planner.plan(
+        vision_result=vision_result,
+        sensor_result=sensor_result,
+        active_ids=request.active_suggestions
+    )
+
+    # Step 5: 流式逐条推送建议
+    for suggestion in new_suggestions:
+        yield format_sse("suggestion", suggestion.dict())
+        await asyncio.sleep(0.3)    # 错开推送，让弹幕依次飘出
+
+    yield format_sse("done", {})
+```
+
+---
+
+### 5. 视觉分析 `agents/vision_analyzer.py`
+
+```python
+# 调用多模态 LLM（GPT-4o / Claude）分析帧图像
+
+VISION_PROMPT = """
+你是一个专业摄影助手，分析以下相机取景帧，识别存在的拍摄问题。
+
+请从以下维度评估，只输出 JSON，不要任何解释：
+
+{
+  "lighting": {
+    "issue": true/false,
+    "detail": "过暗/过曝/逆光/正常",
+    "severity": 1-3
+  },
+  "composition": {
+    "issue": true/false,
+    "detail": "主体偏左/主体偏右/主体居中（推荐三分法）/无明显主体",
+    "severity": 1-3
+  },
+  "stability": {
+    "issue": true/false,
+    "detail": "画面模糊/轻微抖动/稳定",
+    "severity": 1-3
+  },
+  "focus": {
+    "issue": true/false,
+    "detail": "对焦失准/对焦中/对焦准确",
+    "severity": 1-3
+  },
+  "other": {
+    "issue": true/false,
+    "detail": "镜头脏污/玻璃反光/障碍物遮挡/无",
+    "severity": 1-3
+  }
+}
+"""
+
+async def analyze(image: Image) -> VisionResult:
+    response = await llm_client.chat(
+        model="gpt-4o",
+        messages=[
+            {"role": "user", "content": [
+                {"type": "image_url", "image_url": {"url": to_base64_url(image)}},
+                {"type": "text", "text": VISION_PROMPT}
+            ]}
+        ]
+    )
+    return VisionResult.parse_raw(response.content)
+```
+
+---
+
+### 6. 建议生成 `agents/suggestion_planner.py`
+
+```python
+# 将视觉分析结果 → 自然语言建议
+
+SUGGESTION_TEMPLATES = {
+    "lighting_dark":       "画面偏暗，试试点击屏幕调整曝光",
+    "lighting_overexposed":"画面过曝，减少曝光补偿",
+    "lighting_backlit":    "逆光拍摄，可以开启 HDR 或换个角度",
+    "composition_left":    "主体偏左，向右移动一些构图更好",
+    "composition_right":   "主体偏右，向左移动试试",
+    "composition_center":  "主体居中，稍微偏离中心构图更有层次",
+    "stability_blur":      "画面模糊，请稳住手机",
+    "stability_shake":     "轻微抖动，深呼吸后再按快门",
+    "focus_miss":          "对焦跑偏了，点击主体重新对焦",
+    "focus_adjusting":     "等待对焦完成...",
+    "tilt":                "手机倾斜了，请保持水平",
+    "lens_dirty":          "镜头可能有污渍，擦拭后画质更好",
+}
+
+def plan(vision_result, sensor_result, active_ids) -> list[Suggestion]:
+    suggestions = []
+
+    # 从视觉分析 + 传感器生成候选建议
+    candidates = _extract_candidates(vision_result, sensor_result)
+
+    # 过滤已在屏幕上的建议，按 severity 排序
+    filtered = [c for c in candidates if c.id not in active_ids]
+    filtered.sort(key=lambda x: x.priority, reverse=True)
+
+    # 最多推送 3 条新建议（避免弹幕过多）
+    return filtered[:3]
+```
+
+---
+
+### 7. 解决检测 `agents/resolve_detector.py`
+
+```python
+# 判断某条建议是否已被用户解决
+
+def is_resolved(suggestion_id: str, vision_result, sensor_result) -> bool:
+    suggestion_type = extract_type(suggestion_id)
+
+    resolver_map = {
+        "lighting":    lambda: not vision_result.lighting.issue,
+        "composition": lambda: not vision_result.composition.issue,
+        "stability":   lambda: not vision_result.stability.issue,
+        "focus":       lambda: not vision_result.focus.issue,
+        "tilt":        lambda: abs(sensor_result.tilt_x) < 3.0
+                               and abs(sensor_result.tilt_y) < 3.0,
+    }
+
+    resolver = resolver_map.get(suggestion_type)
+    return resolver() if resolver else False
+```
+
+---
+
+## 三、前后端交互时序
+
+```
+iOS                          Backend Agent
+ |                                |
+ |── POST /api/analyze ──────────>|
+ |   (frame + sensorData)         |
+ |                                |── 视觉分析（LLM）
+ |                                |── 传感器判断
+ |                                |
+ |<── event: resolve {id: "s1"} ──|  (已解决的建议先推)
+ |    → s1 变绿色                 |
+ |                                |── 生成新建议
+ |<── event: suggestion {...} ────|  (0.3s 间隔逐条)
+ |    → 新弹幕从右飘入             |
+ |<── event: suggestion {...} ────|
+ |<── event: done ────────────── |
+ |                                |
+ |  （2秒后下一次采帧）             |
+ |── POST /api/analyze ──────────>|
+```
+
+---
+
+## 四、开发阶段
+
+| 阶段 | 端 | 内容 |
+|-----|---|------|
+| Phase 1 | iOS | 相机预览 + 拍照基础功能 |
+| Phase 2 | iOS | 弹幕 UI 动画（Mock 数据驱动） |
+| Phase 3 | 后端 | FastAPI + SSE 框架搭建 + Mock 建议输出 |
+| Phase 4 | 后端 | Vision LLM 接入 + Suggestion Planner |
+| Phase 5 | iOS | AgentService + SSEParser 实现 |
+| Phase 6 | 联调 | 前后端对接 + resolve 逻辑闭环 |
+| Phase 7 | 优化 | 节流 / 弹幕去重 / 网络异常处理 / 性能调优 |
+
+---
