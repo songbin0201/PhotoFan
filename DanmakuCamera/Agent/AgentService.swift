@@ -188,9 +188,8 @@ extension AgentService: URLSessionDataDelegate {
 // MARK: - 配置常量
 
 enum AgentConfig {
-    /// 开发期间：本地 FastAPI 服务
-    /// 上线后替换为真实域名
-    static let baseURL = "http://localhost:8000"
+    /// 生产环境：Railway 部署地址
+    static let baseURL = "https://photofan-backend-production.up.railway.app"
 
     /// 采帧间隔（秒）
     static let frameSampleInterval: Double = 2.0
