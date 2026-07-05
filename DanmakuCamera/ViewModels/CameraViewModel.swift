@@ -9,6 +9,7 @@
 
 import SwiftUI
 import Combine
+import CoreMedia
 
 @MainActor
 final class CameraViewModel: ObservableObject {
