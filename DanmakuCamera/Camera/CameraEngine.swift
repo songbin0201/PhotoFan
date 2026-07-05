@@ -118,7 +118,11 @@ final class CameraEngine: NSObject, ObservableObject {
         // ── 照片输出 ──
         if session.canAddOutput(photoOutput) {
             session.addOutput(photoOutput)
-            photoOutput.isHighResolutionCaptureEnabled = true
+            if #available(iOS 16.0, *) {
+                photoOutput.maxPhotoDimensions = .init(width: 4032, height: 3024)
+            } else {
+                photoOutput.isHighResolutionCaptureEnabled = true
+            }
         }
 
         session.commitConfiguration()
