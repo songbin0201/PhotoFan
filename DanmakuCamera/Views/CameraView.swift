@@ -50,7 +50,7 @@ struct CameraView: View {
         .statusBarHidden(true)
         .onAppear   { viewModel.start() }
         .onDisappear { viewModel.stop() }
-        .onChange(of: viewModel.engine.capturedPhoto) { photo in
+        .onChange(of: viewModel.engine.capturedPhoto) { _, photo in
             if photo != nil {
                 withAnimation(.easeIn(duration: 0.15)) { showPhotoPreview = true }
             }
