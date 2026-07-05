@@ -54,7 +54,7 @@ struct DanmakuItemView: View {
                 startFlying()
             }
             // 当状态变为 achieved 时触发淡出
-            .onChange(of: item.status) { newStatus in
+            .onChange(of: item.status) { _, newStatus in
                 if newStatus == .achieved {
                     scheduleAchievedFadeOut()
                 }
