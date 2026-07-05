@@ -31,6 +31,7 @@ final class CameraViewModel: ObservableObject {
     // ── 最新帧缓存 ──
     private var latestSampleBuffer: CMSampleBuffer?
     private let bufferLock = NSLock()
+    private var _latestBuffer: CMSampleBuffer?
 
     // ── 节流：连续失败计数 ──
     private var consecutiveFailures = 0
@@ -46,9 +47,10 @@ final class CameraViewModel: ObservableObject {
         engine.start()
 
         engine.onFrameOutput = { [weak self] buffer in
-            self?.bufferLock.lock()
-            self?.latestSampleBuffer = buffer
-            self?.bufferLock.unlock()
+            guard let self else { return }
+            self.bufferLock.withLock {
+                self.latestSampleBuffer = buffer
+            }
         }
 
         startFrameLoop()
@@ -82,9 +84,7 @@ final class CameraViewModel: ObservableObject {
     private func sendFrameToAgent() async {
         guard !agentService.isAnalyzing else { return }
 
-        bufferLock.lock()
-        let buffer = latestSampleBuffer
-        bufferLock.unlock()
+        let buffer = bufferLock.withLock { latestSampleBuffer }
         guard let buffer else { return }
 
         guard let frameData = analyzer.captureFrame(from: buffer) else { return }
