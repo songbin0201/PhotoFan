@@ -9,7 +9,7 @@ load_dotenv()
 # ── DeepSeek ──
 DEEPSEEK_API_KEY  = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
-DEEPSEEK_MODEL    = "deepseek-chat"   # DeepSeek-V3，支持图像理解
+DEEPSEEK_MODEL    = "deepseek-v4-flash"
 
 # ── 服务 ──
 HOST = os.getenv("HOST", "0.0.0.0")

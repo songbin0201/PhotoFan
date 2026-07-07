@@ -17,8 +17,7 @@ _client = AsyncOpenAI(
 VISION_PROMPT = """
 你是一个专业的手机摄影助手，正在帮用户实时改善拍照质量。
 
-请分析这张相机取景帧，识别存在的拍摄问题。
-结合以下传感器数据辅助判断：
+请根据以下手机传感器数据，判断当前拍摄可能存在的问题：
 {sensor_context}
 
 请只输出 JSON，不要任何解释或 markdown 代码块，格式如下：
@@ -73,22 +72,11 @@ async def analyze(frame_base64: str, sensor_data: SensorData) -> VisionResult:
         response = await _client.chat.completions.create(
             model=config.DEEPSEEK_MODEL,
             max_tokens=512,
-            temperature=0.1,   # 低温度，保证输出稳定
+            temperature=0.1,
             messages=[
                 {
                     "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{frame_base64}"
-                            }
-                        },
-                        {
-                            "type": "text",
-                            "text": prompt
-                        }
-                    ]
+                    "content": prompt
                 }
             ]
         )
