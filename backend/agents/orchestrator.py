@@ -21,6 +21,16 @@ async def run(request: AnalyzeRequest) -> AsyncGenerator[str, None]:
       3. done 事件
     """
 
+    # ── Step 0：确认帧已接收 ──
+    ack_payload = SuggestionPayload(
+        id=f"ack-{request.session_id[:8]}",
+        type="other",
+        text="已抓取当前帧",
+        resolved=False,
+    )
+    yield _sse("suggestion", ack_payload.model_dump())
+    await asyncio.sleep(config.SSE_INTER_SUGGESTION_DELAY)
+
     # ── Step 1：视觉分析（调用 DeepSeek）──
     vision_result = await vision_analyzer.analyze(
         frame_base64=request.frame,
