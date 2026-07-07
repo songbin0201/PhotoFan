@@ -6,10 +6,10 @@ import os
 
 load_dotenv()
 
-# ── DeepSeek ──
-DEEPSEEK_API_KEY  = os.getenv("DEEPSEEK_API_KEY", "")
-DEEPSEEK_BASE_URL = "https://api.deepseek.com"
-DEEPSEEK_MODEL    = "deepseek-v4-flash"
+# ── LLM（Gemini via OpenAI-compatible API）──
+LLM_API_KEY  = os.getenv("LLM_API_KEY", "")
+LLM_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+LLM_MODEL    = "gemini-2.0-flash"
 
 # ── 服务 ──
 HOST = os.getenv("HOST", "0.0.0.0")

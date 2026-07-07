@@ -1,5 +1,5 @@
 # agents/vision_analyzer.py
-# 调用 DeepSeek 多模态接口分析相机帧，识别拍摄问题
+# 调用 Gemini 多模态接口分析相机帧，识别拍摄问题
 
 import base64
 import json
@@ -8,16 +8,16 @@ from openai import AsyncOpenAI
 from models.request_models import VisionResult, IssueDetail, SensorData
 import config
 
-# DeepSeek 使用 OpenAI 兼容接口
 _client = AsyncOpenAI(
-    api_key=config.DEEPSEEK_API_KEY,
-    base_url=config.DEEPSEEK_BASE_URL,
+    api_key=config.LLM_API_KEY,
+    base_url=config.LLM_BASE_URL,
 )
 
 VISION_PROMPT = """
 你是一个专业的手机摄影助手，正在帮用户实时改善拍照质量。
 
-请根据以下手机传感器数据，判断当前拍摄可能存在的问题：
+请分析这张相机取景帧，识别存在的拍摄问题。
+结合以下传感器数据辅助判断：
 {sensor_context}
 
 请只输出 JSON，不要任何解释或 markdown 代码块，格式如下：
@@ -69,25 +69,36 @@ async def analyze(frame_base64: str, sensor_data: SensorData) -> VisionResult:
     prompt = VISION_PROMPT.format(sensor_context=sensor_context)
 
     try:
-        print(f"[VisionAnalyzer] 开始调用 DeepSeek model={config.DEEPSEEK_MODEL}, sensor={sensor_context}")
+        print(f"[VisionAnalyzer] 开始调用 model={config.LLM_MODEL}, sensor={sensor_context}")
         response = await _client.chat.completions.create(
-            model=config.DEEPSEEK_MODEL,
+            model=config.LLM_MODEL,
             max_tokens=512,
             temperature=0.1,
             messages=[
                 {
                     "role": "user",
-                    "content": prompt
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{frame_base64}"
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": prompt
+                        }
+                    ]
                 }
             ]
         )
 
         raw = response.choices[0].message.content or ""
-        print(f"[VisionAnalyzer] DeepSeek 返回: {raw[:200]}")
+        print(f"[VisionAnalyzer] 模型返回: {raw[:200]}")
         return _parse_result(raw)
 
     except Exception as e:
-        print(f"[VisionAnalyzer] DeepSeek 调用失败: {e}")
+        print(f"[VisionAnalyzer] 模型调用失败: {e}")
         return VisionResult()
 
 

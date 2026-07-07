@@ -28,7 +28,7 @@ app.add_middleware(
 # ── 健康检查 ──
 @app.get("/health")
 async def health():
-    return {"status": "ok", "model": config.DEEPSEEK_MODEL}
+    return {"status": "ok", "model": config.LLM_MODEL}
 
 
 # ── 连通确认：轻量 SSE，不调用 AI ──
