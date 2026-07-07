@@ -31,6 +31,33 @@ async def health():
     return {"status": "ok", "model": config.DEEPSEEK_MODEL}
 
 
+# ── 连通确认：轻量 SSE，不调用 AI ──
+@app.post("/api/ping")
+async def ping():
+    """App 启动时调用，返回一条确认弹幕验证前后端联通"""
+    import json
+
+    async def _generate():
+        payload = {
+            "id": "ping-ack",
+            "type": "other",
+            "text": "已抓取当前帧",
+            "resolved": False,
+        }
+        yield f"event: suggestion\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+        yield "event: done\ndata: {}\n\n"
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
 # ── 核心：帧分析 + SSE 流式推送 ──
 @app.post("/api/analyze")
 async def analyze(request: AnalyzeRequest):
