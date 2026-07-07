@@ -6,10 +6,10 @@ import os
 
 load_dotenv()
 
-# ── LLM（Gemini via OpenAI-compatible API）──
+# ── LLM（智谱 GLM-4V-Flash，支持多模态）──
 LLM_API_KEY  = os.getenv("LLM_API_KEY", "")
-LLM_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
-LLM_MODEL    = "gemini-2.0-flash"
+LLM_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
+LLM_MODEL    = "glm-4v-flash"
 
 # ── 服务 ──
 HOST = os.getenv("HOST", "0.0.0.0")
