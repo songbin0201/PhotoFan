@@ -69,6 +69,7 @@ async def analyze(frame_base64: str, sensor_data: SensorData) -> VisionResult:
     prompt = VISION_PROMPT.format(sensor_context=sensor_context)
 
     try:
+        print(f"[VisionAnalyzer] 开始调用 DeepSeek model={config.DEEPSEEK_MODEL}, sensor={sensor_context}")
         response = await _client.chat.completions.create(
             model=config.DEEPSEEK_MODEL,
             max_tokens=512,
@@ -82,6 +83,7 @@ async def analyze(frame_base64: str, sensor_data: SensorData) -> VisionResult:
         )
 
         raw = response.choices[0].message.content or ""
+        print(f"[VisionAnalyzer] DeepSeek 返回: {raw[:200]}")
         return _parse_result(raw)
 
     except Exception as e:
