@@ -43,13 +43,17 @@ USER_PROMPT = """观察这张实时取景画面，结合传感器数据：
 
 请只输出 JSON 数组，不要解释或 markdown：
 [
-  {{"type": "类型", "text": "简短建议", "priority": 1到3}},
+  {{"type": "类型", "text": "简短建议", "priority": 1到3, "action": {{"control": "控件", "direction": "方向"}}}},
   ...
 ]
 
-type 从以下选择：lighting, composition, focus, stability, tilt, other
-priority：1=锦上添花 2=明显改善 3=关键问题
-text：必须是具体可执行的动作指令，12-18字"""
+字段说明：
+- type：lighting / composition / focus / stability / tilt / other
+- priority：1=锦上添花 2=明显改善 3=关键问题
+- text：具体可执行的动作指令，12-18字
+- action：用户可通过手机调节的参数（若建议不涉及参数调节则省略 action）
+  - control：exposure（曝光补偿）/ iso（感光度）/ white_balance（白平衡）/ focus（对焦）
+  - direction：increase（增大）/ decrease（减小）/ auto（自动）"""
 
 
 async def analyze(
@@ -121,10 +125,18 @@ def _parse_suggestions(raw: str) -> list[Suggestion]:
         for item in data:
             if not isinstance(item, dict):
                 continue
+            action = None
+            if "action" in item and isinstance(item["action"], dict):
+                from models.request_models import SuggestionAction
+                action = SuggestionAction(
+                    control=item["action"].get("control", ""),
+                    direction=item["action"].get("direction", ""),
+                )
             suggestions.append(Suggestion(
                 type=item.get("type", "other"),
                 text=item.get("text", ""),
                 priority=int(item.get("priority", 2)),
+                action=action,
             ))
 
         return suggestions

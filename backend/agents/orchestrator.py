@@ -40,8 +40,9 @@ async def run(request: AnalyzeRequest) -> AsyncGenerator[str, None]:
             type=suggestion.type,
             text=suggestion.text,
             resolved=False,
+            action=suggestion.action,
         )
-        yield _sse("suggestion", payload.model_dump())
+        yield _sse("suggestion", payload.model_dump(exclude_none=True))
         await asyncio.sleep(config.SSE_INTER_SUGGESTION_DELAY)
 
     # ── Step 4：结束信号 ──

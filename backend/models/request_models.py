@@ -32,6 +32,7 @@ class SuggestionPayload(BaseModel):
     type: str   # lighting / composition / stability / focus / tilt / other
     text: str   # 中文建议文字
     resolved: bool = False
+    action: Optional[SuggestionAction] = None
 
 
 class ResolvePayload(BaseModel):
@@ -59,6 +60,13 @@ class VisionResult(BaseModel):
     other:       IssueDetail = Field(default_factory=IssueDetail)
 
 
+# ── 操作动作 ──
+
+class SuggestionAction(BaseModel):
+    control: str = ""       # exposure / white_balance / iso / focus
+    direction: str = ""     # increase / decrease / auto
+
+
 # ── 内部建议对象 ──
 
 class Suggestion(BaseModel):
@@ -66,3 +74,4 @@ class Suggestion(BaseModel):
     type: str
     text: str
     priority: int = Field(1, ge=1, le=3)
+    action: Optional[SuggestionAction] = None
