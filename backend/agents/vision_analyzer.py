@@ -12,64 +12,23 @@ _client = AsyncOpenAI(
     base_url=config.LLM_BASE_URL,
 )
 
-SYSTEM_PROMPT = """你是一位获奖无数的专业摄影指导大师，正在通过手机屏幕实时辅导用户拍照。
-你的目标是帮用户拍出媲美专业摄影师的作品，而不仅仅是"没问题"的照片。
+SYSTEM_PROMPT = """你是一个专业摄影师，擅长用最简洁的语言给出最实用的拍摄改善建议。"""
 
-你的风格：
-- 像大师在旁边轻声提醒，温和但精准
-- 给出具体可执行的动作指令，不说废话
-- 每条建议控制在 12-20 个中文字符以内（弹幕显示空间有限）
-- 建议文案必须引用屏幕上的视觉标记，让用户看到文字就知道看屏幕哪里
-  例如："移到屏幕黄圈位置"、"朝箭头方向移动手机"、"对齐闪烁的虚线框"
-- 绝对不用摄影术语（三分法、负空间、引导线等）"""
+USER_PROMPT = """针对这张照片，给出 3 条具体的拍摄改善建议。
 
-USER_PROMPT = """观察这张实时取景画面，结合传感器数据：
-{sensor_context}
+要求：
+- 每条建议格式为"标题：具体操作说明"
+- 建议要针对这张照片的实际问题，具体、可执行
+- 涉及构图、光线、背景、角度、景深等方面
 
-当前屏幕上已有的建议类型：{active_types}
-（请不要重复这些类型的建议）
-
-请从以下维度分析，给出 1-3 条最有价值的改善建议：
-
-1. 光线运用（lighting）：侧光/逆光/伦勃朗光/黄金时段/曝光调整
-2. 构图技法（composition）：三分法/引导线/框架构图/对称/负空间/视角高低
-3. 焦点与景深（focus）：焦点选择/前景虚化/背景简化
-4. 稳定与清晰（stability）：防抖技巧/快门速度
-5. 场景特定（scene）：根据识别到的场景给出针对性建议
-   - 人像：眼神光/姿态/背景干净
-   - 风景：前景层次/天空比例/地平线水平
-   - 美食：俯拍角度/摆盘留白/自然光方向
-   - 街拍：等待决定性瞬间/背景简洁
-   - 建筑：垂直线校正/对称感
-6. 创意提升（creative）：不寻常的角度/色彩对比/情绪表达
-
-重要：text 必须是用户能立刻执行的身体/手机动作，不要用摄影术语！
-例如：
-- 错误："使用三分法构图" ← 用户不懂
-- 正确："手机右移一点，人物靠左竖线" ← 用户马上能做
-
-请只输出 JSON 数组，不要解释或 markdown：
+请只输出 JSON 数组，不要其他内容：
 [
-  {{
-    "type": "类型",
-    "text": "动作指令12-18字",
-    "priority": 1到3,
-    "action": {{"control": "控件", "direction": "方向"}},
-    "guide": {{"type": "引导类型", "direction": "方向", "position": "位置"}}
-  }}
+  {{"type": "composition", "text": "建议内容"}},
+  {{"type": "lighting", "text": "建议内容"}},
+  {{"type": "other", "text": "建议内容"}}
 ]
 
-字段说明：
-- type：lighting / composition / focus / stability / tilt / other
-- priority：1=锦上添花 2=明显改善 3=关键问题
-- text：用户可立刻执行的身体/手机动作指令，12-18字，不用术语
-- action：手机参数调节（不涉及则省略）
-  - control：exposure / iso / white_balance / focus
-  - direction：increase / decrease / auto
-- guide：屏幕视觉引导（每条建议都必须有）
-  - type：arrow（方向箭头）/ grid_point（网格交叉点高亮）/ target_zone（目标区域）/ level（水平仪）
-  - direction：left / right / up / down / back / forward（箭头方向或移动方向）
-  - position：top_left / top_right / bottom_left / bottom_right / center（引导显示位置）"""
+type 可选值：lighting / composition / focus / other"""
 
 
 async def analyze(
@@ -78,20 +37,9 @@ async def analyze(
     active_types: list[str] | None = None,
 ) -> list[Suggestion]:
     """
-    调用多模态模型分析帧图像，直接返回专业摄影建议列表。
+    调用多模态模型分析照片，返回专业摄影建议。
     """
-    sensor_context = (
-        f"设备倾斜：X轴 {sensor_data.tilt_x:.1f}°，Y轴 {sensor_data.tilt_y:.1f}°\n"
-        f"本地亮度估值：{sensor_data.brightness:.2f}（0最暗，1最亮）\n"
-        f"对焦状态：{'正在对焦中' if sensor_data.is_focusing else '对焦稳定'}"
-    )
-
-    active_display = "、".join(active_types) if active_types else "无"
-
-    prompt = USER_PROMPT.format(
-        sensor_context=sensor_context,
-        active_types=active_display,
-    )
+    prompt = USER_PROMPT
 
     try:
         print(f"[VisionAnalyzer] 开始调用 model={config.LLM_MODEL}")
@@ -141,27 +89,10 @@ def _parse_suggestions(raw: str) -> list[Suggestion]:
         for item in data:
             if not isinstance(item, dict):
                 continue
-            action = None
-            if "action" in item and isinstance(item["action"], dict):
-                from models.request_models import SuggestionAction
-                action = SuggestionAction(
-                    control=item["action"].get("control", ""),
-                    direction=item["action"].get("direction", ""),
-                )
-            guide = None
-            if "guide" in item and isinstance(item["guide"], dict):
-                from models.request_models import SuggestionGuide
-                guide = SuggestionGuide(
-                    type=item["guide"].get("type", ""),
-                    direction=item["guide"].get("direction", ""),
-                    position=item["guide"].get("position", "center"),
-                )
             suggestions.append(Suggestion(
                 type=item.get("type", "other"),
                 text=item.get("text", ""),
-                priority=int(item.get("priority", 2)),
-                action=action,
-                guide=guide,
+                priority=2,
             ))
 
         return suggestions
