@@ -1,11 +1,10 @@
 # agents/vision_analyzer.py
-# 调用 Gemini 多模态接口分析相机帧，识别拍摄问题
+# 调用多模态模型分析相机帧，直接输出专业摄影建议
 
-import base64
 import json
 import re
 from openai import AsyncOpenAI
-from models.request_models import VisionResult, IssueDetail, SensorData
+from models.request_models import SensorData, Suggestion
 import config
 
 _client = AsyncOpenAI(
@@ -13,52 +12,53 @@ _client = AsyncOpenAI(
     base_url=config.LLM_BASE_URL,
 )
 
-VISION_PROMPT = """
-你是一个严格的手机摄影助手，正在帮用户实时改善拍照质量。
-你的职责是尽可能找出画面中可以改善的地方，即使画面看起来还行，也要从专业角度给出优化建议。
-至少标记 1-2 个 issue 为 true。
+SYSTEM_PROMPT = """你是一位获奖无数的专业摄影指导大师，正在通过手机屏幕实时辅导用户拍照。
+你的目标是帮用户拍出媲美专业摄影师的作品，而不仅仅是"没问题"的照片。
 
-请分析这张相机取景帧，结合以下传感器数据辅助判断：
+你的风格：
+- 像大师在旁边轻声提醒，温和但精准
+- 给出具体可执行的动作指令，不说废话
+- 每条建议控制在 12-18 个中文字符以内（弹幕显示空间有限）
+- 用专业但易懂的语言"""
+
+USER_PROMPT = """观察这张实时取景画面，结合传感器数据：
 {sensor_context}
 
-请只输出 JSON，不要任何解释或 markdown 代码块，格式如下：
+当前屏幕上已有的建议类型：{active_types}
+（请不要重复这些类型的建议）
 
-{{
-  "lighting": {{
-    "issue": true或false,
-    "detail": "过暗/过曝/逆光/色温偏冷/色温偏暖/正常",
-    "severity": 1到3的整数
-  }},
-  "composition": {{
-    "issue": true或false,
-    "detail": "主体偏左/主体偏右/主体居中建议三分法/主体偏上/主体偏下/无明显主体/构图良好",
-    "severity": 1到3的整数
-  }},
-  "stability": {{
-    "issue": true或false,
-    "detail": "画面模糊/轻微抖动/稳定",
-    "severity": 1到3的整数
-  }},
-  "focus": {{
-    "issue": true或false,
-    "detail": "对焦失准/对焦中/对焦准确",
-    "severity": 1到3的整数
-  }},
-  "other": {{
-    "issue": true或false,
-    "detail": "镜头有污渍/玻璃反光/遮挡物/无异常",
-    "severity": 1到3的整数
-  }}
-}}
+请从以下维度分析，给出 1-3 条最有价值的改善建议：
 
-severity 含义：1=轻微可改善，2=中等问题，3=严重问题。
-"""
+1. 光线运用（lighting）：侧光/逆光/伦勃朗光/黄金时段/曝光调整
+2. 构图技法（composition）：三分法/引导线/框架构图/对称/负空间/视角高低
+3. 焦点与景深（focus）：焦点选择/前景虚化/背景简化
+4. 稳定与清晰（stability）：防抖技巧/快门速度
+5. 场景特定（scene）：根据识别到的场景给出针对性建议
+   - 人像：眼神光/姿态/背景干净
+   - 风景：前景层次/天空比例/地平线水平
+   - 美食：俯拍角度/摆盘留白/自然光方向
+   - 街拍：等待决定性瞬间/背景简洁
+   - 建筑：垂直线校正/对称感
+6. 创意提升（creative）：不寻常的角度/色彩对比/情绪表达
+
+请只输出 JSON 数组，不要解释或 markdown：
+[
+  {{"type": "类型", "text": "简短建议", "priority": 1到3}},
+  ...
+]
+
+type 从以下选择：lighting, composition, focus, stability, tilt, other
+priority：1=锦上添花 2=明显改善 3=关键问题
+text：必须是具体可执行的动作指令，12-18字"""
 
 
-async def analyze(frame_base64: str, sensor_data: SensorData) -> VisionResult:
+async def analyze(
+    frame_base64: str,
+    sensor_data: SensorData,
+    active_types: list[str] | None = None,
+) -> list[Suggestion]:
     """
-    调用 DeepSeek 分析帧图像，返回结构化视觉分析结果。
-    若 API 调用失败，返回空结果（不中断主流程）。
+    调用多模态模型分析帧图像，直接返回专业摄影建议列表。
     """
     sensor_context = (
         f"设备倾斜：X轴 {sensor_data.tilt_x:.1f}°，Y轴 {sensor_data.tilt_y:.1f}°\n"
@@ -66,15 +66,21 @@ async def analyze(frame_base64: str, sensor_data: SensorData) -> VisionResult:
         f"对焦状态：{'正在对焦中' if sensor_data.is_focusing else '对焦稳定'}"
     )
 
-    prompt = VISION_PROMPT.format(sensor_context=sensor_context)
+    active_display = "、".join(active_types) if active_types else "无"
+
+    prompt = USER_PROMPT.format(
+        sensor_context=sensor_context,
+        active_types=active_display,
+    )
 
     try:
-        print(f"[VisionAnalyzer] 开始调用 model={config.LLM_MODEL}, sensor={sensor_context}")
+        print(f"[VisionAnalyzer] 开始调用 model={config.LLM_MODEL}")
         response = await _client.chat.completions.create(
             model=config.LLM_MODEL,
             max_tokens=512,
-            temperature=0.1,
+            temperature=0.7,
             messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
                 {
                     "role": "user",
                     "content": [
@@ -94,36 +100,35 @@ async def analyze(frame_base64: str, sensor_data: SensorData) -> VisionResult:
         )
 
         raw = response.choices[0].message.content or ""
-        print(f"[VisionAnalyzer] 模型返回: {raw[:200]}")
-        return _parse_result(raw)
+        print(f"[VisionAnalyzer] 模型返回: {raw[:300]}")
+        return _parse_suggestions(raw)
 
     except Exception as e:
         print(f"[VisionAnalyzer] 模型调用失败: {e}")
-        return VisionResult()
+        return []
 
 
-def _parse_result(raw: str) -> VisionResult:
-    """安全解析 DeepSeek 返回的 JSON，容错格式不规范的情况"""
+def _parse_suggestions(raw: str) -> list[Suggestion]:
+    """解析模型返回的 JSON 数组为 Suggestion 列表"""
     try:
-        # 去除可能残留的 markdown 代码块标记
         cleaned = re.sub(r"```(?:json)?|```", "", raw).strip()
         data = json.loads(cleaned)
 
-        def to_detail(d: dict) -> IssueDetail:
-            return IssueDetail(
-                issue=bool(d.get("issue", False)),
-                detail=str(d.get("detail", "")),
-                severity=int(d.get("severity", 1))
-            )
+        if not isinstance(data, list):
+            data = [data]
 
-        return VisionResult(
-            lighting=to_detail(data.get("lighting", {})),
-            composition=to_detail(data.get("composition", {})),
-            stability=to_detail(data.get("stability", {})),
-            focus=to_detail(data.get("focus", {})),
-            other=to_detail(data.get("other", {})),
-        )
+        suggestions = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            suggestions.append(Suggestion(
+                type=item.get("type", "other"),
+                text=item.get("text", ""),
+                priority=int(item.get("priority", 2)),
+            ))
+
+        return suggestions
 
     except Exception as e:
         print(f"[VisionAnalyzer] JSON 解析失败: {e}\n原始内容: {raw[:200]}")
-        return VisionResult()
+        return []

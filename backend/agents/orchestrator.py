@@ -1,59 +1,39 @@
 # agents/orchestrator.py
-# Agent 主调度：接收请求 → 并行分析 → 流式推送 SSE 事件
+# Agent 主调度：接收请求 → 多模态分析 → 流式推送专业建议
 
 import asyncio
 import json
 from typing import AsyncGenerator
 
-from models.request_models import (
-    AnalyzeRequest, SuggestionPayload, ResolvePayload
-)
-from agents import vision_analyzer, suggestion_planner, resolve_detector
+from models.request_models import AnalyzeRequest, SuggestionPayload
+from agents import vision_analyzer
 import config
 
 
 async def run(request: AnalyzeRequest) -> AsyncGenerator[str, None]:
     """
-    主 Pipeline，返回 SSE 格式的异步生成器。
-    事件顺序：
-      1. resolve 事件（先告知哪些建议已解决 → 立刻变绿）
-      2. suggestion 事件（新建议，错开间隔逐条推送）
-      3. done 事件
+    主 Pipeline：
+      1. 调用多模态模型分析画面，直接获取专业建议
+      2. 过滤已在屏幕上的同类型建议
+      3. 逐条 SSE 推送
     """
 
-    # ── Step 1：视觉分析（调用 DeepSeek）──
-    vision_result = await vision_analyzer.analyze(
+    # ── Step 1：多模态分析，直接获取建议列表 ──
+    suggestions = await vision_analyzer.analyze(
         frame_base64=request.frame,
         sensor_data=request.sensor_data,
-    )
-
-    # ── Step 2：判断哪些已有建议可以 resolve ──
-    # iOS 端传来的 active_suggestions 是 type 列表
-    # 这里我们构造 id 映射（实际项目中 iOS 应传 [{id, type}] 列表，
-    # 当前简化为 type 即 id，与 iOS 端 mock 保持一致）
-    active_items = [{"id": t, "type": t} for t in request.active_suggestions]
-
-    resolved_ids = resolve_detector.find_resolved(
-        active_items=active_items,
-        vision_result=vision_result,
-        sensor_data=request.sensor_data,
-    )
-
-    # 先推送所有 resolve 事件（让弹幕立刻变绿）
-    for rid in resolved_ids:
-        payload = ResolvePayload(id=rid, resolved=True)
-        yield _sse("resolve", payload.model_dump())
-
-    # ── Step 3：生成新建议 ──
-    # 过滤掉已在屏幕上的类型
-    new_suggestions = suggestion_planner.plan(
-        vision_result=vision_result,
-        sensor_data=request.sensor_data,
         active_types=request.active_suggestions,
-        max_count=config.MAX_NEW_SUGGESTIONS,
     )
 
-    # 逐条推送，错开间隔，让弹幕依次飘出
+    # ── Step 2：过滤已在屏幕上的类型 ──
+    active_types = set(request.active_suggestions)
+    new_suggestions = [s for s in suggestions if s.type not in active_types]
+
+    # 按优先级排序，最多推送 max_count 条
+    new_suggestions.sort(key=lambda s: s.priority, reverse=True)
+    new_suggestions = new_suggestions[:config.MAX_NEW_SUGGESTIONS]
+
+    # ── Step 3：逐条推送 ──
     for suggestion in new_suggestions:
         payload = SuggestionPayload(
             id=suggestion.id,
