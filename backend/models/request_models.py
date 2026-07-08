@@ -25,6 +25,13 @@ class AnalyzeRequest(BaseModel):
     )
 
 
+# ── 操作动作 ──
+
+class SuggestionAction(BaseModel):
+    control: str = ""       # exposure / white_balance / iso / focus
+    direction: str = ""     # increase / decrease / auto
+
+
 # ── 下行：后端 → iOS（SSE payload）──
 
 class SuggestionPayload(BaseModel):
@@ -42,29 +49,6 @@ class ResolvePayload(BaseModel):
 
 class ErrorPayload(BaseModel):
     message: str
-
-
-# ── 视觉分析结果（内部流转）──
-
-class IssueDetail(BaseModel):
-    issue: bool = False
-    detail: str = ""
-    severity: int = Field(1, ge=1, le=3)   # 1=轻微 2=中等 3=严重
-
-
-class VisionResult(BaseModel):
-    lighting:    IssueDetail = Field(default_factory=IssueDetail)
-    composition: IssueDetail = Field(default_factory=IssueDetail)
-    stability:   IssueDetail = Field(default_factory=IssueDetail)
-    focus:       IssueDetail = Field(default_factory=IssueDetail)
-    other:       IssueDetail = Field(default_factory=IssueDetail)
-
-
-# ── 操作动作 ──
-
-class SuggestionAction(BaseModel):
-    control: str = ""       # exposure / white_balance / iso / focus
-    direction: str = ""     # increase / decrease / auto
 
 
 # ── 内部建议对象 ──
