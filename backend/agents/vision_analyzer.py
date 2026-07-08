@@ -41,19 +41,33 @@ USER_PROMPT = """观察这张实时取景画面，结合传感器数据：
    - 建筑：垂直线校正/对称感
 6. 创意提升（creative）：不寻常的角度/色彩对比/情绪表达
 
+重要：text 必须是用户能立刻执行的身体/手机动作，不要用摄影术语！
+例如：
+- 错误："使用三分法构图" ← 用户不懂
+- 正确："手机右移一点，人物靠左竖线" ← 用户马上能做
+
 请只输出 JSON 数组，不要解释或 markdown：
 [
-  {{"type": "类型", "text": "简短建议", "priority": 1到3, "action": {{"control": "控件", "direction": "方向"}}}},
-  ...
+  {{
+    "type": "类型",
+    "text": "动作指令12-18字",
+    "priority": 1到3,
+    "action": {{"control": "控件", "direction": "方向"}},
+    "guide": {{"type": "引导类型", "direction": "方向", "position": "位置"}}
+  }}
 ]
 
 字段说明：
 - type：lighting / composition / focus / stability / tilt / other
 - priority：1=锦上添花 2=明显改善 3=关键问题
-- text：具体可执行的动作指令，12-18字
-- action：用户可通过手机调节的参数（若建议不涉及参数调节则省略 action）
-  - control：exposure（曝光补偿）/ iso（感光度）/ white_balance（白平衡）/ focus（对焦）
-  - direction：increase（增大）/ decrease（减小）/ auto（自动）"""
+- text：用户可立刻执行的身体/手机动作指令，12-18字，不用术语
+- action：手机参数调节（不涉及则省略）
+  - control：exposure / iso / white_balance / focus
+  - direction：increase / decrease / auto
+- guide：屏幕视觉引导（每条建议都必须有）
+  - type：arrow（方向箭头）/ grid_point（网格交叉点高亮）/ target_zone（目标区域）/ level（水平仪）
+  - direction：left / right / up / down / back / forward（箭头方向或移动方向）
+  - position：top_left / top_right / bottom_left / bottom_right / center（引导显示位置）"""
 
 
 async def analyze(
@@ -132,11 +146,20 @@ def _parse_suggestions(raw: str) -> list[Suggestion]:
                     control=item["action"].get("control", ""),
                     direction=item["action"].get("direction", ""),
                 )
+            guide = None
+            if "guide" in item and isinstance(item["guide"], dict):
+                from models.request_models import SuggestionGuide
+                guide = SuggestionGuide(
+                    type=item["guide"].get("type", ""),
+                    direction=item["guide"].get("direction", ""),
+                    position=item["guide"].get("position", "center"),
+                )
             suggestions.append(Suggestion(
                 type=item.get("type", "other"),
                 text=item.get("text", ""),
                 priority=int(item.get("priority", 2)),
                 action=action,
+                guide=guide,
             ))
 
         return suggestions

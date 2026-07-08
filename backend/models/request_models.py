@@ -32,6 +32,12 @@ class SuggestionAction(BaseModel):
     direction: str = ""     # increase / decrease / auto
 
 
+class SuggestionGuide(BaseModel):
+    type: str = ""          # arrow / grid_point / target_zone / level
+    direction: str = ""     # left / right / up / down / center
+    position: str = ""      # top_left / top_right / bottom_left / bottom_right / center
+
+
 # ── 下行：后端 → iOS（SSE payload）──
 
 class SuggestionPayload(BaseModel):
@@ -40,6 +46,7 @@ class SuggestionPayload(BaseModel):
     text: str   # 中文建议文字
     resolved: bool = False
     action: Optional[SuggestionAction] = None
+    guide: Optional[SuggestionGuide] = None
 
 
 class ResolvePayload(BaseModel):
@@ -59,3 +66,4 @@ class Suggestion(BaseModel):
     text: str
     priority: int = Field(1, ge=1, le=3)
     action: Optional[SuggestionAction] = None
+    guide: Optional[SuggestionGuide] = None
