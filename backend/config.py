@@ -16,6 +16,6 @@ HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", 8000))
 
 # ── 业务参数 ──
-MAX_FRAME_BYTES      = 500_000   # 上传帧最大 500KB
+MAX_FRAME_BYTES      = 5_000_000   # 上传图片最大 5MB
 MAX_NEW_SUGGESTIONS  = 3         # 每次最多推送几条新建议
 SSE_INTER_SUGGESTION_DELAY = 0.3 # 相邻两条建议的推送间隔（秒）
