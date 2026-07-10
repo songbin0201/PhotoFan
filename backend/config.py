@@ -6,10 +6,10 @@ import os
 
 load_dotenv()
 
-# ── LLM（智谱 GLM-4V-Flash，支持多模态）──
+# ── LLM（豆包 Doubao-Seed-1.6-vision，支持多模态）──
 LLM_API_KEY  = os.getenv("LLM_API_KEY", "")
-LLM_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
-LLM_MODEL    = "glm-4v-flash"
+LLM_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3/"
+LLM_MODEL    = os.getenv("LLM_MODEL", "ep-20260710091325-v6x5z")
 
 # ── 服务 ──
 HOST = os.getenv("HOST", "0.0.0.0")
